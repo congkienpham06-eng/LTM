@@ -10,13 +10,14 @@ from PySide6.QtWidgets import (
     QListWidget,
     QLineEdit,
     QPushButton,
+    QLabel,
 )
 
 # Đổi tên file/class cho đúng với phần của bên client
 from test import FakeClient
 
 
-class MessageBridge(QObject):
+class message_bridge(QObject):
     
 
     new_message = Signal(str)
@@ -25,7 +26,7 @@ class MessageBridge(QObject):
         self.new_message.emit(text)
 
 
-class ChatWindow(QWidget):
+class chat_window(QWidget):
     def __init__(self, client):
         super().__init__()
         self.client = client
@@ -73,6 +74,16 @@ class ChatWindow(QWidget):
         if message == "/quit":
             self.close()
 
+class bubble_border(QLabel):
+    def __init__(self, text):
+        super().__init__()
+        self.setStyleSheet(
+            "background-color: darkblue;" 
+            "border-radius: 15px;" 
+            "padding: 10px;" 
+            "color: white;")
+        self.setWordWrap(True)
+
 
 def main(host, port):
     app = QApplication(sys.argv)
@@ -80,9 +91,9 @@ def main(host, port):
     client = FakeClient(host, port)
     receive = client.start()
 
-    window = ChatWindow(client)
+    window = chat_window(client)
 
-    bridge = MessageBridge()
+    bridge = message_bridge()
     bridge.new_message.connect(window.add_message)
     client.messages = bridge
     receive.messages = bridge
