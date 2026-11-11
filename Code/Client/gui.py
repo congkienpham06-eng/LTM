@@ -1,10 +1,11 @@
 import sys
 import argparse
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, Qt
 from PySide6.QtWidgets import (
     QApplication,
     QWidget,
+    QListWidgetItem,
     QVBoxLayout,
     QHBoxLayout,
     QListWidget,
@@ -20,7 +21,7 @@ from test import FakeClient
 class message_bridge(QObject):
     
 
-    new_message = Signal(str)
+    new_message = Signal(object)
 
     def insert(self, index, text):
         self.new_message.emit(text)
@@ -54,8 +55,13 @@ class chat_window(QWidget):
         self.text_input.returnPressed.connect(self.send)
         self.btn_send.clicked.connect(self.send)
 
-    def add_message(self, text):
-        self.messages.addItem(text)
+    def add_message(self, packet):
+        sender = packet.get("from")
+        content = packet.get("content")
+        text = f"{sender}: {content}"
+        item = QListWidgetItem(text)
+        item.setData(Qt.UserRole, packet)
+        self.messages.addItem(item)
         self.messages.scrollToBottom()
 
     def send(self):
@@ -109,3 +115,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     main(args.host, args.p)
+
