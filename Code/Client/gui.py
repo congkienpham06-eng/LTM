@@ -1,3 +1,4 @@
+from importlib.resources import contents
 import sys
 import argparse
 
@@ -59,9 +60,21 @@ class chat_window(QWidget):
         sender = packet.get("from")
         content = packet.get("content")
         text = f"{sender}: {content}"
-        item = QListWidgetItem(text)
+        item = QListWidgetItem()
+        border = bubble_border(text)
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(10, 5, 10, 5)
+        if sender == self.client.name:
+            layout.addStretch()
+            layout.addWidget(border)
+        else:
+            layout.addWidget(border)
+            layout.addStretch()
+        item.setSizeHint(row.sizeHint())
         item.setData(Qt.UserRole, packet)
         self.messages.addItem(item)
+        self.messages.setItemWidget(item, row)
         self.messages.scrollToBottom()
 
     def send(self):
@@ -72,7 +85,7 @@ class chat_window(QWidget):
 
        
         if message != "/quit":
-            self.add_message("{}: {}".format(self.client.name, message))
+            self.add_message({"from": self.client.name, "content": message})
 
        
         self.client.send(message)
@@ -82,13 +95,14 @@ class chat_window(QWidget):
 
 class bubble_border(QLabel):
     def __init__(self, text):
-        super().__init__()
+        super().__init__(text)
         self.setStyleSheet(
             "background-color: darkblue;" 
             "border-radius: 15px;" 
             "padding: 10px;" 
             "color: white;")
         self.setWordWrap(True)
+        self.setMaximumWidth(400)
 
 
 def main(host, port):
