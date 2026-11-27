@@ -1,25 +1,54 @@
+import os
 import sys
 import argparse
 
 from PySide6.QtCore import QObject, Signal, Qt
 from PySide6.QtWidgets import (
     QApplication,
-    QWidget,
-    QListWidgetItem,
-    QVBoxLayout,
     QHBoxLayout,
-    QListWidget,
-    QLineEdit,
-    QPushButton,
     QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMenu,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
 
-# Đổi tên file/class cho đúng với phần của bên client
-from test import FakeClientForTest
+# Cho Python thấy thư mục Code (chứa Shared), giống client_handler.py của nhóm
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    from Shared.protocol import make_message, MSG_TEXT, MSG_REPLY
+except ImportError:
+
+    import time
+    import uuid
+
+    MSG_TEXT = "TEXT"
+    MSG_REPLY = "REPLY"
+
+    def make_message(msg_type, sender="", to="", content="", reply_to=None,
+                     forward_from=None, extra=None):
+        msg = {
+            "type": msg_type,
+            "msg_id": str(uuid.uuid4()),
+            "from": sender,
+            "to": to,
+            "timestamp": time.time(),
+            "content": content,
+            "reply_to": reply_to,
+            "forward_from": forward_from,
+        }
+        if extra:
+            msg.update(extra)
+        return msg
+
+
+from test import FakeClient
 
 
 class message_bridge(QObject):
-    
 
     new_message = Signal(object)
 
@@ -31,23 +60,28 @@ class chat_window(QWidget):
     def __init__(self, client):
         super().__init__()
 
-        self.reply_to = None
+        self.reply_target = None
+
+        self.messages_by_id = {}
+
         self.reply_label = QLabel()
+        self.reply_label.setTextFormat(Qt.TextFormat.PlainText)
         self.reply_label.hide()
 
         self.client = client
 
-        self.setWindowTitle("Chatroom")
+        self.setWindowTitle(f"Chatroom - {self.client.name}")
         self.resize(600, 500)
 
         self.messages = QListWidget()
+        self.messages.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 
-      
         self.text_input = QLineEdit()
-        self.text_input.setPlaceholderText("Write your message here.")
+        self.text_input.setPlaceholderText("Nhập tin nhắn.")
 
-        self.btn_send = QPushButton("Send")
+        self.btn_send = QPushButton("Gửi")
         self.btn_cancel_reply = QPushButton("X")
+        self.btn_cancel_reply.setFixedWidth(24)
         self.btn_cancel_reply.hide()
 
         row = QHBoxLayout()
@@ -55,7 +89,7 @@ class chat_window(QWidget):
         row.addWidget(self.btn_send)
 
         reply_row = QHBoxLayout()
-        reply_row.addWidget(self.reply_label)
+        reply_row.addWidget(self.reply_label, stretch=1)
         reply_row.addWidget(self.btn_cancel_reply)
 
         layout = QVBoxLayout(self)
@@ -65,16 +99,37 @@ class chat_window(QWidget):
 
         self.text_input.returnPressed.connect(self.send)
         self.btn_send.clicked.connect(self.send)
+        self.btn_cancel_reply.clicked.connect(self.cancel_reply)
         self.messages.itemDoubleClicked.connect(self.reply)
+        self.messages.customContextMenuRequested.connect(self.show_message_menu)
 
     def add_message(self, packet):
+        msg_id = packet.get("msg_id")
+        if msg_id:
+            self.messages_by_id[msg_id] = packet
+
         sender = packet.get("from")
         content = packet.get("content")
         text = f"{sender}: {content}"
+
+        reply_preview = None
+        reply_to = packet.get("reply_to")
+        if reply_to:
+            original = self.messages_by_id.get(reply_to)
+            if original:
+                reply_preview = "{}: {}".format(
+                    original.get("from", "?"), original.get("content", "")[:60]
+                )
+            else:
+                reply_preview = "Tin nhắn gốc không còn khả dụng"
+
+        if reply_preview:
+            text = f"> {reply_preview}\n{text}"
+
         item = QListWidgetItem()
         border = bubble_border(text)
         row = QWidget()
-        
+
         layout = QHBoxLayout(row)
         layout.setContentsMargins(10, 5, 10, 5)
 
@@ -98,25 +153,61 @@ class chat_window(QWidget):
         if not message:
             return
 
-        if message != "/quit":
-            self.add_message({"from": self.client.name, "content": message})
-
-        self.client.send(message)
-
         if message == "/quit":
+            self.client.send(message)
             self.close()
+            return
+
+        if self.reply_target:
+            packet = make_message(MSG_REPLY, sender=self.client.name, to="all",
+                                  content=message, reply_to=self.reply_target)
+        else:
+            packet = make_message(MSG_TEXT, sender=self.client.name, to="all",
+                                  content=message)
+
+        self.add_message(packet)
+        self.client.send(packet)
+        self.cancel_reply()
+
+    def show_message_menu(self, pos):
+        """Chuột phải vào tin: hiện menu Reply."""
+        item = self.messages.itemAt(pos)
+        if not item:
+            return
+        packet = item.data(Qt.ItemDataRole.UserRole)
+        if not packet:
+            return
+
+        menu = QMenu(self)
+        reply_action = menu.addAction("Reply")
+        reply_action.triggered.connect(lambda: self.start_reply(packet))
+        menu.exec(self.messages.viewport().mapToGlobal(pos))
 
     def reply(self, item):
-        packet = item.data(Qt.UserRole)
-        self.reply_to = packet
-        sender = packet.get("from")
-        content = packet.get("content")
-        self.reply_label.setText(f"Replying {sender}: {content}")
-        
+        """Nhấp đúp vào tin cũng reply."""
+        packet = item.data(Qt.ItemDataRole.UserRole)
+        if packet:
+            self.start_reply(packet)
+
+    def start_reply(self, packet):
+        msg_id = packet.get("msg_id")
+        if not msg_id:
+            return  
+
+        self.reply_target = msg_id
+        sender = packet.get("from", "?")
+        preview = packet.get("content", "")[:60]
+        self.reply_label.setText(f"Replying {sender}: {preview}")
+
         self.reply_label.show()
         self.btn_cancel_reply.show()
-
         self.text_input.setFocus()
+
+    def cancel_reply(self):
+        self.reply_target = None
+        self.reply_label.hide()
+        self.btn_cancel_reply.hide()
+
 
 class bubble_border(QLabel):
     def __init__(self, text):
@@ -133,7 +224,7 @@ class bubble_border(QLabel):
 def main(host, port):
     app = QApplication(sys.argv)
 
-    client = FakeClientForTest(host, port)
+    client = FakeClient(host, port)
     receive = client.start()
 
     window = chat_window(client)
@@ -154,4 +245,3 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     main(args.host, args.p)
-

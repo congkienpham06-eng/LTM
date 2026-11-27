@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from Shared.protocol import (
     send_message, recv_message, make_message, validate_message, ProtocolError,
     MSG_LOGIN, MSG_ACK, MSG_ERROR, MSG_PONG, MSG_DISCONNECT,
-    MSG_USER_JOINED, MSG_USER_LEFT, CONTENT_TYPES,
+    MSG_USER_JOINED, MSG_USER_LEFT, CONTENT_TYPES, MSG_PING, 
 )
 from Shared.config import HEARTBEAT_TIMEOUT, HEARTBEAT_GRACE
 
